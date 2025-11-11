@@ -15,4 +15,11 @@ softdepend:
   - ProtocolLib
   - packetevents
   - PlotSquared
+  - CraftEngine
+  - ItemsAdder
+  - Nexo
+  - Oraxen
+  - MMOItems
+  - ExecutableItems
+  - ExcellentCrates
 api-version: 1.18

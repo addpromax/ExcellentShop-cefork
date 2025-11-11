@@ -17,4 +17,13 @@ public class HookPlugin {
     public static final String PLOT_SQUARED           = "PlotSquared";
 
     public static final String UPGRADEABLE_HOPPERS = "UpgradeableHoppers";
+
+    // Custom Item Plugins
+    public static final String CRAFT_ENGINE      = "CraftEngine";
+    public static final String ITEMS_ADDER       = "ItemsAdder";
+    public static final String NEXO              = "Nexo";
+    public static final String ORAXEN            = "Oraxen";
+    public static final String MMO_ITEMS         = "MMOItems";
+    public static final String EXECUTABLE_ITEMS  = "ExecutableItems";
+    public static final String EXCELLENT_CRATES  = "ExcellentCrates";
 }

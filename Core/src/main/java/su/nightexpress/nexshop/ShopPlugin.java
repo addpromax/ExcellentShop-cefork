@@ -86,6 +86,7 @@ public class ShopPlugin extends NightPlugin {
     public void enable() {
         this.loadAPI();
         this.loadCommands();
+        this.loadIntegrations();
 
         this.dataHandler = new DataHandler(this);
         this.dataHandler.setup();
@@ -134,6 +135,54 @@ public class ShopPlugin extends NightPlugin {
     private void loadAPI() {
         ShopAPI.load(this);
         Keys.load(this);
+    }
+
+    private void loadIntegrations() {
+        this.loadItemIntegrations();
+    }
+
+    private void loadItemIntegrations() {
+        // Register all custom item plugin adapters through nightcore
+        this.registerItemAdapter(HookPlugin.ITEMS_ADDER, "su.nightexpress.nightcore.integration.item.adapter.impl.ItemsAdderAdapter");
+        this.registerItemAdapter(HookPlugin.NEXO, "su.nightexpress.nightcore.integration.item.adapter.impl.NexoAdapter");
+        this.registerItemAdapter(HookPlugin.ORAXEN, "su.nightexpress.nightcore.integration.item.adapter.impl.OraxenAdapter");
+        this.registerItemAdapter(HookPlugin.MMO_ITEMS, "su.nightexpress.nightcore.integration.item.adapter.impl.MMOItemsAdapter");
+        this.registerItemAdapter(HookPlugin.EXECUTABLE_ITEMS, "su.nightexpress.nightcore.integration.item.adapter.impl.ExecutableItemsAdapter");
+        this.registerItemAdapter(HookPlugin.CRAFT_ENGINE, "su.nightexpress.nightcore.integration.item.adapter.impl.CraftEngineAdapter");
+        
+        // ExcellentCrates has two adapters (crate and key)
+        if (Plugins.isInstalled(HookPlugin.EXCELLENT_CRATES)) {
+            this.registerItemAdapter(HookPlugin.EXCELLENT_CRATES, "su.nightexpress.nightcore.integration.item.adapter.impl.ECratesCrateAdapter");
+            this.registerItemAdapter(HookPlugin.EXCELLENT_CRATES, "su.nightexpress.nightcore.integration.item.adapter.impl.ECratesKeyAdapter");
+        }
+    }
+
+    private void registerItemAdapter(@NotNull String pluginName, @NotNull String adapterClassName) {
+        if (!Plugins.isInstalled(pluginName)) return;
+
+        try {
+            // 先检查adapter类是否存在
+            Class<?> adapterClass = Class.forName(adapterClassName);
+            
+            // 尝试实例化adapter，如果依赖的类不存在会抛出NoClassDefFoundError
+            Object adapter = adapterClass.getDeclaredConstructor().newInstance();
+            
+            // 修复：方法名应该是 register 而不是 registerAdapter
+            Class.forName("su.nightexpress.nightcore.integration.item.ItemBridge")
+                .getMethod("register", Class.forName("su.nightexpress.nightcore.bridge.item.ItemAdapter"))
+                .invoke(null, adapter);
+            
+            this.info("Registered item adapter for: " + pluginName);
+        } catch (ClassNotFoundException ignored) {
+            // Adapter class not found in nightcore version
+            this.warn("Adapter class not found for " + pluginName + ", skipping...");
+        } catch (NoClassDefFoundError e) {
+            // Plugin's API classes not available (plugin might be outdated or incompatible)
+            this.warn("Could not load adapter for " + pluginName + ": " + e.getMessage());
+            this.warn("This usually means the plugin version is incompatible. Adapter will be skipped.");
+        } catch (Exception e) {
+            this.error("Failed to register item adapter for " + pluginName + ": " + e.getMessage());
+        }
     }
 
     private void loadModules() {

@@ -6,7 +6,8 @@
     <parent>
         <groupId>su.nightexpress.excellentshop</groupId>
         <artifactId>ExcellentShop-spigot</artifactId>
-        <version>4.22.0</version>
+        <version>4.22.0-Fork</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>integration-advanced-region-market</artifactId>

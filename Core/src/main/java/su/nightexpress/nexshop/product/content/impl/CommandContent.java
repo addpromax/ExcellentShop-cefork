@@ -38,20 +38,31 @@ public class CommandContent extends ProductContent {
         if (config.contains(path + ".Content.Preview")) {
             String tagString = String.valueOf(config.getString(path + ".Content.Preview"));
 
-            ItemTag tag = new ItemTag(tagString, -1);
-            ItemStack itemStack = tag.getItemStack();
-            if (itemStack == null) {
-                ErrorHandler.configError("Could not update itemstack '" + tagString + "'!", config, path);
-            }
+            try {
+                // 尝试使用旧版本数据修复机制迁移 NBT 数据
+                ItemTag tag = new ItemTag(tagString, Version.MC_1_21.getDataVersion());
+                ItemStack itemStack = tag.getItemStack();
+                if (itemStack == null) {
+                    ErrorHandler.configError("Could not update itemstack '" + tagString + "'!", config, path);
+                }
 
-            config.remove(path + ".Content.Preview");
-            config.set(path + ".PreviewTag", new ItemTag(tagString, Version.getCurrent().getDataVersion()));
+                config.remove(path + ".Content.Preview");
+                config.set(path + ".PreviewTag", new ItemTag(tagString, Version.getCurrent().getDataVersion()));
+            } catch (Exception e) {
+                ErrorHandler.configError("Failed to migrate old NBT format for preview. Using default. Error: " + e.getMessage(), config, path);
+                config.remove(path + ".Content.Preview");
+            }
         }
 
         ItemTag tag = ItemTag.read(config, path + ".PreviewTag");
         List<String> commands = config.getStringList(path + ".Content.Commands");
 
-        ItemStack preview = tag.getItemStack();
+        ItemStack preview = null;
+        try {
+            preview = tag.getItemStack();
+        } catch (Exception e) {
+            ErrorHandler.configError("Failed to load preview item. Using default. Error: " + e.getMessage(), config, path);
+        }
         if (preview == null) preview = new ItemStack(Material.COMMAND_BLOCK);
 
         return new CommandContent(preview, commands);

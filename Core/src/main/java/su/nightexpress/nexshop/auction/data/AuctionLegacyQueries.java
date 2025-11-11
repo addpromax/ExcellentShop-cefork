@@ -220,13 +220,18 @@ public class AuctionLegacyQueries {
 
     @Nullable
     public static ItemContent vanillaTypeFromJson(@NotNull String serialized) {
-        ItemTag tag = DataHandler.GSON.fromJson(serialized, ItemTag.class);
-        if (tag == null) return null;
+        try {
+            ItemTag tag = DataHandler.GSON.fromJson(serialized, ItemTag.class);
+            if (tag == null) return null;
 
-        ItemStack itemStack = ItemNbt.fromTag(tag);
-        if (itemStack == null) return null;
+            ItemStack itemStack = ItemNbt.fromTag(tag);
+            if (itemStack == null) return null;
 
-        return new ItemContent(new AdaptedVanillaStack(tag), true);
+            return new ItemContent(new AdaptedVanillaStack(tag), true);
+        } catch (Exception e) {
+            ShopAPI.getPlugin().error("Failed to deserialize vanilla item from JSON: " + e.getMessage());
+            return null;
+        }
     }
 
     @Nullable

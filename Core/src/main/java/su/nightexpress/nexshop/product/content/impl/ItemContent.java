@@ -20,7 +20,7 @@ import su.nightexpress.nightcore.integration.item.impl.AdaptedCustomStack;
 import su.nightexpress.nightcore.integration.item.impl.AdaptedItemStack;
 import su.nightexpress.nightcore.integration.item.impl.AdaptedVanillaStack;
 import su.nightexpress.nightcore.util.ItemTag;
-import su.nightexpress.nightcore.util.Version;
+import su.nightexpress.nexshop.util.LegacyNbtDecoder;
 
 public class ItemContent extends ProductContent {
 
@@ -39,38 +39,161 @@ public class ItemContent extends ProductContent {
         updateVanillaConfig(config, path);
         updatePluginConfig(config, path);
 
-        AdaptedItem adaptedItem = AdaptedItemStack.read(config, path + ".Item");
+        AdaptedItem adaptedItem = null;
+        try {
+            adaptedItem = AdaptedItemStack.read(config, path + ".Item");
+        } catch (Exception e) {
+            // 读取失败，可能是旧 NBT 格式导致的解析错误
+            // 尝试自动修复
+            if (tryAutoFixItem(config, path)) {
+                // 修复成功，重新读取
+                try {
+                    adaptedItem = AdaptedItemStack.read(config, path + ".Item");
+                } catch (Exception ex) {
+                    ErrorHandler.configError("Auto-fix failed. Please recreate this item. Error: " + ex.getMessage(), config, path);
+                    config.remove(path + ".Item");
+                    return null;
+                }
+            } else {
+                ErrorHandler.configError("Failed to load item. The NBT format may be corrupted or outdated. Please recreate this item. Error: " + e.getMessage(), config, path);
+                config.remove(path + ".Item");
+                return null;
+            }
+        }
+        
         if (adaptedItem == null) return null;
+
+        // 重新检测物品的真实adapter
+        // 修复CE等自定义物品被错误识别为vanilla的问题
+        ItemStack itemStack = adaptedItem.getItemStack();
+        if (itemStack != null && adaptedItem.getAdapter().isVanilla()) {
+            ItemAdapter<?> realAdapter = ItemBridge.getAdapter(itemStack);
+            if (realAdapter != null && !realAdapter.isVanilla()) {
+                // 物品实际上是自定义物品（如CE），使用正确的adapter重新适配
+                AdaptedItem newAdaptedItem = realAdapter.adapt(itemStack).orElse(null);
+                if (newAdaptedItem != null && newAdaptedItem.isValid()) {
+                    adaptedItem = newAdaptedItem;
+                    // 更新配置文件，保存正确的adapter信息
+                    config.set(path + ".Item", newAdaptedItem);
+                }
+            }
+        }
 
         boolean compareNbt = config.getBoolean(path + ".Item.CompareNBT");
 
         return new ItemContent(adaptedItem, compareNbt);
     }
 
+    private static boolean tryAutoFixItem(@NotNull FileConfig config, @NotNull String path) {
+        try {
+            // 尝试读取已迁移但包含旧 NBT 数据的配置
+            String provider = config.getString(path + ".Item.Provider");
+            if (!"vanilla".equals(provider)) {
+                return false; // 只处理原版物品
+            }
+            
+            String oldNbtValue = config.getString(path + ".Item.Data.Value");
+            if (oldNbtValue == null || oldNbtValue.isEmpty()) {
+                return false;
+            }
+            
+            // 检测是否是旧格式 Base32 字符串（不包含 { } 符号）
+            if (oldNbtValue.contains("{") && oldNbtValue.contains("}")) {
+                return false; // 已经是新格式 NBT 字符串
+            }
+            
+            System.out.println("[ExcellentShop] 检测到旧格式 NBT，尝试自动转换: " + path);
+            System.out.println("[ExcellentShop] 旧 NBT 值前 50 字符: " + oldNbtValue.substring(0, Math.min(50, oldNbtValue.length())));
+            
+            int dataVersion = config.getInt(path + ".Item.Data.DataVersion", -1);
+            System.out.println("[ExcellentShop] 数据版本: " + dataVersion);
+            
+            // 尝试用二进制解码器解析旧格式
+            ItemStack itemStack = LegacyNbtDecoder.decodeFromBase32(oldNbtValue, dataVersion);
+            
+            if (itemStack != null) {
+                System.out.println("[ExcellentShop] 成功解码！物品类型: " + itemStack.getType());
+                
+                // 成功解析！用新格式重新编码
+                ItemTag newTag = ItemTag.of(itemStack);
+                System.out.println("[ExcellentShop] 新 NBT 标签前 50 字符: " + newTag.getTag().substring(0, Math.min(50, newTag.getTag().length())));
+                
+                AdaptedVanillaStack vanillaStack = new AdaptedVanillaStack(newTag);
+                
+                boolean compareNbt = config.getBoolean(path + ".Item.CompareNBT");
+                config.set(path + ".Item", vanillaStack);
+                config.set(path + ".Item.CompareNBT", compareNbt);
+                config.saveChanges();
+                
+                System.out.println("[ExcellentShop] ✓ 成功转换并保存: " + path);
+                return true;
+            } else {
+                System.out.println("[ExcellentShop] ✗ 解码失败，返回 null");
+            }
+        } catch (Exception e) {
+            System.out.println("[ExcellentShop] ✗ 自动修复异常: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            e.printStackTrace();
+        }
+        return false;
+    }
+
     private static void updateVanillaConfig(@NotNull FileConfig config, @NotNull String path) {
         if (config.contains(path + ".Content.Item")) {
-            String tagString = String.valueOf(config.getString(path + ".Content.Item"));
+            String oldTagString = String.valueOf(config.getString(path + ".Content.Item"));
 
-            ItemTag tag = new ItemTag(tagString, -1);
-            ItemStack itemStack = tag.getItemStack();
-            if (itemStack == null) {
-                ErrorHandler.configError("Could not update itemstack '" + tagString + "'!", config, path);
+            try {
+                // 使用二进制解码器处理旧格式 Base32 压缩的 NBT
+                ItemStack itemStack = LegacyNbtDecoder.decodeFromBase32(oldTagString, -1);
+                
+                if (itemStack != null) {
+                    // 成功解析！使用当前版本重新编码
+                    ItemTag newTag = ItemTag.of(itemStack);
+                    config.remove(path + ".Content.Item");
+                    config.set(path + ".ItemTag", newTag);
+                    // 迁移成功
+                } else {
+                    ErrorHandler.configError("Could not decode old item format. Please recreate this item.", config, path);
+                    config.remove(path + ".Content.Item");
+                }
+            } catch (Exception e) {
+                ErrorHandler.configError("Failed to migrate old NBT format for item. Please recreate this item. Error: " + e.getMessage(), config, path);
+                config.remove(path + ".Content.Item");
             }
-
-            config.remove(path + ".Content.Item");
-            config.set(path + ".ItemTag", new ItemTag(tagString, Version.getCurrent().getDataVersion()));
         }
 
         if (config.contains(path + ".ItemTag")) {
-            ItemTag tag = ItemTag.read(config, path + ".ItemTag");
-            boolean respectMeta = config.getBoolean(path + ".Item_Meta_Enabled");
+            try {
+                ItemTag tag = ItemTag.read(config, path + ".ItemTag");
+                boolean respectMeta = config.getBoolean(path + ".Item_Meta_Enabled");
 
-            config.remove(path + ".ItemTag");
-            config.remove(path + ".Item_Meta_Enabled");
+                // 验证并可能重新编码
+                ItemStack itemStack = tag.getItemStack();
+                if (itemStack != null) {
+                    // 使用当前版本重新编码以确保格式正确
+                    ItemTag updatedTag = ItemTag.of(itemStack);
+                    
+                    config.remove(path + ".ItemTag");
+                    config.remove(path + ".Item_Meta_Enabled");
 
-            AdaptedVanillaStack vanillaStack = new AdaptedVanillaStack(tag);
-            config.set(path + ".Item", vanillaStack);
-            config.set(path + ".Item.CompareNBT", respectMeta);
+                    AdaptedVanillaStack vanillaStack = new AdaptedVanillaStack(updatedTag);
+                    if (!vanillaStack.isValid()) {
+                        ErrorHandler.configError("Migrated item is invalid. Please recreate this item.", config, path);
+                        return;
+                    }
+                    
+                    config.set(path + ".Item", vanillaStack);
+                    config.set(path + ".Item.CompareNBT", respectMeta);
+                    // ItemTag 更新成功
+                } else {
+                    ErrorHandler.configError("ItemTag could not be converted to ItemStack. Please recreate this item.", config, path);
+                    config.remove(path + ".ItemTag");
+                    config.remove(path + ".Item_Meta_Enabled");
+                }
+            } catch (Exception e) {
+                ErrorHandler.configError("Failed to migrate ItemTag format. Please recreate this item. Error: " + e.getMessage(), config, path);
+                config.remove(path + ".ItemTag");
+                config.remove(path + ".Item_Meta_Enabled");
+            }
         }
     }
 
